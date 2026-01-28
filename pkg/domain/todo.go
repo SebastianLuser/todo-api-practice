@@ -1,6 +1,9 @@
 package domain
 
-import "time"
+import (
+	"regexp"
+	"time"
+)
 
 const (
 	StatusPending    Status = "pending"
@@ -42,4 +45,13 @@ func (p Priority) IsValid() bool {
 		return true
 	}
 	return false
+}
+
+var uuidRegex = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+func ValidateUUID(id string) error {
+	if !uuidRegex.MatchString(id) {
+		return ErrInvalidID
+	}
+	return nil
 }

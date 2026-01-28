@@ -8,4 +8,8 @@ import (
 
 func registerTodoRoutes(router boot.GinRouter, ctrl *controller.Todo) {
 	router.GET("/api/todos", webgin.NewHandlerJSON(ctrl.Get))
+	router.GET("/api/todos/:id", webgin.NewHandlerJSON(ctrl.GetByID))
+	router.POST("/api/todos", webgin.NewHandlerJSON(ctrl.Create))
+	router.PATCH("/api/todos/:id", webgin.NewHandlerJSON(ctrl.Update))
+	router.DELETE("/api/todos/:id", webgin.NewHandlerJSON(ctrl.Delete))
 }

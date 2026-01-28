@@ -28,6 +28,32 @@ type (
 		Data  []TodoResponse `json:"data"`
 		Total int            `json:"total"`
 	}
+
+	GetByIDResponse struct {
+		Data TodoResponse `json:"data"`
+	}
+
+	CreateRequest struct {
+		Title       string  `json:"title"`
+		Description *string `json:"description,omitempty"`
+		Status      *string `json:"status,omitempty"`
+		Priority    *string `json:"priority,omitempty"`
+	}
+
+	CreateResponse struct {
+		Data TodoResponse `json:"data"`
+	}
+
+	UpdateRequest struct {
+		Title       *string `json:"title,omitempty"`
+		Description *string `json:"description,omitempty"`
+		Status      *string `json:"status,omitempty"`
+		Priority    *string `json:"priority,omitempty"`
+	}
+
+	UpdateResponse struct {
+		Data TodoResponse `json:"data"`
+	}
 )
 
 func New(uc *usecase.Todo, errHandler web.ErrorHandler) *Todo {
@@ -35,6 +61,63 @@ func New(uc *usecase.Todo, errHandler web.ErrorHandler) *Todo {
 		usecase:    uc,
 		errHandler: errHandler,
 	}
+}
+
+func (c *Todo) Create(req web.Request) web.Response {
+	var body CreateRequest
+	if err := web.DecodeJSON(req.Body(), &body); err != nil {
+		return web.NewJSONResponseFromError(
+			web.NewResponseError(http.StatusBadRequest, err),
+		)
+	}
+
+	if len(body.Title) == 0 || len(body.Title) > 100 {
+		return web.NewJSONResponseFromError(
+			web.NewResponseError(http.StatusBadRequest, domain.ErrInvalidTitle),
+		)
+	}
+
+	if body.Description != nil && len(*body.Description) > 500 {
+		return web.NewJSONResponseFromError(
+			web.NewResponseError(http.StatusBadRequest, domain.ErrInvalidDescription),
+		)
+	}
+
+	input := usecase.CreateInput{
+		Title:       body.Title,
+		Description: body.Description,
+	}
+
+	if body.Status != nil {
+		status := domain.Status(*body.Status)
+		if !status.IsValid() {
+			return web.NewJSONResponseFromError(
+				web.NewResponseError(http.StatusBadRequest, domain.ErrInvalidStatus),
+			)
+		}
+		input.Status = &status
+	}
+
+	if body.Priority != nil {
+		priority := domain.Priority(*body.Priority)
+		if !priority.IsValid() {
+			return web.NewJSONResponseFromError(
+				web.NewResponseError(http.StatusBadRequest, domain.ErrInvalidPriority),
+			)
+		}
+		input.Priority = &priority
+	}
+
+	output, err := c.usecase.Create(req.Context(), input)
+	if err != nil {
+		return web.NewJSONResponseFromError(c.errHandler.Handle(err))
+	}
+
+	response := CreateResponse{
+		Data: MapTodoToResponse(output.Todo),
+	}
+
+	return web.NewJSONResponse(http.StatusCreated, response)
 }
 
 func (c *Todo) Get(req web.Request) web.Response {
@@ -71,6 +154,130 @@ func (c *Todo) Get(req web.Request) web.Response {
 	}
 
 	return web.NewJSONResponse(http.StatusOK, response)
+}
+
+func (c *Todo) GetByID(req web.Request) web.Response {
+	id, ok := req.Param("id")
+	if !ok {
+		return web.NewJSONResponseFromError(
+			web.NewResponseError(http.StatusBadRequest, domain.ErrInvalidID),
+		)
+	}
+
+	if err := domain.ValidateUUID(id); err != nil {
+		return web.NewJSONResponseFromError(
+			web.NewResponseError(http.StatusBadRequest, err),
+		)
+	}
+
+	output, err := c.usecase.GetByID(req.Context(), id)
+	if err != nil {
+		return web.NewJSONResponseFromError(c.errHandler.Handle(err))
+	}
+
+	response := GetByIDResponse{
+		Data: MapTodoToResponse(output.Todo),
+	}
+
+	return web.NewJSONResponse(http.StatusOK, response)
+}
+
+func (c *Todo) Update(req web.Request) web.Response {
+	id, ok := req.Param("id")
+	if !ok {
+		return web.NewJSONResponseFromError(
+			web.NewResponseError(http.StatusBadRequest, domain.ErrInvalidID),
+		)
+	}
+
+	if err := domain.ValidateUUID(id); err != nil {
+		return web.NewJSONResponseFromError(
+			web.NewResponseError(http.StatusBadRequest, err),
+		)
+	}
+
+	var body UpdateRequest
+	if err := web.DecodeJSON(req.Body(), &body); err != nil {
+		return web.NewJSONResponseFromError(
+			web.NewResponseError(http.StatusBadRequest, err),
+		)
+	}
+
+	if body.Title == nil && body.Description == nil && body.Status == nil && body.Priority == nil {
+		return web.NewJSONResponseFromError(
+			web.NewResponseError(http.StatusBadRequest, domain.ErrEmptyUpdateRequest),
+		)
+	}
+
+	if body.Title != nil && (len(*body.Title) == 0 || len(*body.Title) > 100) {
+		return web.NewJSONResponseFromError(
+			web.NewResponseError(http.StatusBadRequest, domain.ErrInvalidTitle),
+		)
+	}
+
+	if body.Description != nil && len(*body.Description) > 500 {
+		return web.NewJSONResponseFromError(
+			web.NewResponseError(http.StatusBadRequest, domain.ErrInvalidDescription),
+		)
+	}
+
+	input := usecase.UpdateInput{
+		Title:       body.Title,
+		Description: body.Description,
+	}
+
+	if body.Status != nil {
+		status := domain.Status(*body.Status)
+		if !status.IsValid() {
+			return web.NewJSONResponseFromError(
+				web.NewResponseError(http.StatusBadRequest, domain.ErrInvalidStatus),
+			)
+		}
+		input.Status = &status
+	}
+
+	if body.Priority != nil {
+		priority := domain.Priority(*body.Priority)
+		if !priority.IsValid() {
+			return web.NewJSONResponseFromError(
+				web.NewResponseError(http.StatusBadRequest, domain.ErrInvalidPriority),
+			)
+		}
+		input.Priority = &priority
+	}
+
+	output, err := c.usecase.Update(req.Context(), id, input)
+	if err != nil {
+		return web.NewJSONResponseFromError(c.errHandler.Handle(err))
+	}
+
+	response := UpdateResponse{
+		Data: MapTodoToResponse(output.Todo),
+	}
+
+	return web.NewJSONResponse(http.StatusOK, response)
+}
+
+func (c *Todo) Delete(req web.Request) web.Response {
+	id, ok := req.Param("id")
+	if !ok {
+		return web.NewJSONResponseFromError(
+			web.NewResponseError(http.StatusBadRequest, domain.ErrInvalidID),
+		)
+	}
+
+	if err := domain.ValidateUUID(id); err != nil {
+		return web.NewJSONResponseFromError(
+			web.NewResponseError(http.StatusBadRequest, err),
+		)
+	}
+
+	err := c.usecase.Delete(req.Context(), id)
+	if err != nil {
+		return web.NewJSONResponseFromError(c.errHandler.Handle(err))
+	}
+
+	return web.NewJSONResponse(http.StatusNoContent, nil)
 }
 
 func MapTodoToResponse(todo domain.Todo) TodoResponse {
