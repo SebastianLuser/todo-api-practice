@@ -1,0 +1,28 @@
+# Binaries
+*.exe
+*.dll
+*.so
+*.dylib
+*.out
+bin/
+dist/
+
+# Go build/test cache (opcional)
+**/*.test
+coverage.out
+
+# IDEs
+.idea/
+.vscode/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Env / local configs / secrets
+.env
+.env.*
+conf/local.yml
+
+# Docker overrides (si los usás)
+docker-compose.override.yml
