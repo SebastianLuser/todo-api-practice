@@ -9,6 +9,7 @@ dist/
 
 # IDEs
 .idea/
+.claude
 .vscode/
 
 # OS junk
