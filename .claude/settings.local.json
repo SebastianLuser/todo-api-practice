@@ -5,7 +5,13 @@
       "Bash(wc:*)",
       "Bash(go build:*)",
       "Bash(curl:*)",
-      "Bash(Start-Process -NoNewWindow -FilePath \"go\" -ArgumentList \"run\", \"./cmd/...\")"
+      "Bash(Start-Process -NoNewWindow -FilePath \"go\" -ArgumentList \"run\", \"./cmd/...\")",
+      "Bash(go get:*)",
+      "Bash(docker-compose up:*)",
+      "Bash(taskkill:*)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(docker exec:*)"
     ]
   }
 }

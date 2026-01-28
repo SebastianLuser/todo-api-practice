@@ -1,10 +1,12 @@
 package main
 
 import (
-	"todo-api/pkg/service"
+	"todo-api/database"
 	"todo-api/pkg/usecase"
 )
 
-func NewTodoUsecase(svc service.Service) usecase.Usecase {
+func NewTodoUsecase() *usecase.Todo {
+	db := database.NewDatabase()
+	svc := NewTodoService(db)
 	return usecase.New(svc)
 }

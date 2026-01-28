@@ -2,9 +2,14 @@ package service
 
 import (
 	"context"
+	"database/sql"
+	_ "embed"
 
 	"todo-api/pkg/domain"
 )
+
+//go:embed sql/select/get_todos.sql
+var getTodosQuery string
 
 type (
 	Filters struct {
@@ -12,33 +17,61 @@ type (
 		Priority *domain.Priority
 	}
 
-	inMemoryService struct {
-		todos map[string]domain.Todo
+	postgresService struct {
+		db *sql.DB
 	}
 
-	Service interface {
-		List(ctx context.Context, filters Filters) ([]domain.Todo, error)
+	Todo interface {
+		Get(ctx context.Context, filters Filters) ([]domain.Todo, error)
 	}
 )
 
-func New() Service {
-	return &inMemoryService{
-		todos: make(map[string]domain.Todo),
-	}
+func New(db *sql.DB) Todo {
+	return &postgresService{db: db}
 }
 
-func (s *inMemoryService) List(ctx context.Context, filters Filters) ([]domain.Todo, error) {
-	var result []domain.Todo
+func (s *postgresService) Get(ctx context.Context, filters Filters) ([]domain.Todo, error) {
+	var statusFilter, priorityFilter *string
 
-	for _, todo := range s.todos {
-		if filters.Status != nil && todo.Status != *filters.Status {
-			continue
-		}
-		if filters.Priority != nil && todo.Priority != *filters.Priority {
-			continue
-		}
-		result = append(result, todo)
+	if filters.Status != nil {
+		v := string(*filters.Status)
+		statusFilter = &v
+	}
+	if filters.Priority != nil {
+		v := string(*filters.Priority)
+		priorityFilter = &v
 	}
 
-	return result, nil
+	rows, err := s.db.QueryContext(ctx, getTodosQuery, statusFilter, priorityFilter)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var todos []domain.Todo
+	for rows.Next() {
+		var todo domain.Todo
+		var description sql.NullString
+
+		err := rows.Scan(
+			&todo.ID,
+			&todo.Title,
+			&description,
+			&todo.Status,
+			&todo.Priority,
+			&todo.CreatedAt,
+			&todo.UpdatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if description.Valid {
+			todo.Description = description.String
+		}
+
+		todos = append(todos, todo)
+	}
+
+	return todos, rows.Err()
 }

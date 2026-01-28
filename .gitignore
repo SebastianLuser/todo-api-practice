@@ -7,10 +7,6 @@
 bin/
 dist/
 
-# Go build/test cache (opcional)
-**/*.test
-coverage.out
-
 # IDEs
 .idea/
 .vscode/
@@ -26,3 +22,5 @@ conf/local.yml
 
 # Docker overrides (si los usás)
 docker-compose.override.yml
+
+nul

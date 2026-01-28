@@ -9,8 +9,8 @@ import (
 )
 
 type (
-	controller struct {
-		usecase    usecase.Usecase
+	Todo struct {
+		usecase    *usecase.Todo
 		errHandler web.ErrorHandler
 	}
 
@@ -24,24 +24,20 @@ type (
 		UpdatedAt   string `json:"updated_at"`
 	}
 
-	ListResponse struct {
+	GetResponse struct {
 		Data  []TodoResponse `json:"data"`
 		Total int            `json:"total"`
 	}
-
-	Controller interface {
-		List(req web.Request) web.Response
-	}
 )
 
-func New(uc usecase.Usecase, errHandler web.ErrorHandler) Controller {
-	return &controller{
+func New(uc *usecase.Todo, errHandler web.ErrorHandler) *Todo {
+	return &Todo{
 		usecase:    uc,
 		errHandler: errHandler,
 	}
 }
 
-func (c *controller) List(req web.Request) web.Response {
+func (c *Todo) Get(req web.Request) web.Response {
 	input := usecase.ListInput{}
 
 	if statusStr, ok := req.Query("status"); ok {
@@ -64,12 +60,12 @@ func (c *controller) List(req web.Request) web.Response {
 		input.Priority = &priority
 	}
 
-	output, err := c.usecase.List(req.Context(), input)
+	output, err := c.usecase.Get(req.Context(), input)
 	if err != nil {
 		return web.NewJSONResponseFromError(c.errHandler.Handle(err))
 	}
 
-	response := ListResponse{
+	response := GetResponse{
 		Data:  MapTodosToResponse(output.Todos),
 		Total: output.Total,
 	}

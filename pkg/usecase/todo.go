@@ -18,28 +18,24 @@ type (
 		Total int
 	}
 
-	usecase struct {
-		service service.Service
-	}
-
-	Usecase interface {
-		List(ctx context.Context, input ListInput) (ListOutput, error)
+	Todo struct {
+		service service.Todo
 	}
 )
 
-func New(svc service.Service) Usecase {
-	return &usecase{
+func New(svc service.Todo) *Todo {
+	return &Todo{
 		service: svc,
 	}
 }
 
-func (u *usecase) List(ctx context.Context, input ListInput) (ListOutput, error) {
+func (u *Todo) Get(ctx context.Context, input ListInput) (ListOutput, error) {
 	filters := service.Filters{
 		Status:   input.Status,
 		Priority: input.Priority,
 	}
 
-	todos, err := u.service.List(ctx, filters)
+	todos, err := u.service.Get(ctx, filters)
 	if err != nil {
 		return ListOutput{}, err
 	}

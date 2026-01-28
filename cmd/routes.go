@@ -6,7 +6,6 @@ import (
 	webgin "todo-api/web/gin"
 )
 
-func registerTodoRoutes(router boot.GinRouter, ctrl controller.Controller) {
-	router.GET("/api/todos", webgin.NewHandlerJSON(ctrl.List))
-
+func registerTodoRoutes(router boot.GinRouter, ctrl *controller.Todo) {
+	router.GET("/api/todos", webgin.NewHandlerJSON(ctrl.Get))
 }
