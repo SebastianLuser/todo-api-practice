@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(tree:*)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(go build:*)",
+      "Bash(curl:*)",
+      "Bash(Start-Process -NoNewWindow -FilePath \"go\" -ArgumentList \"run\", \"./cmd/...\")"
     ]
   }
 }
