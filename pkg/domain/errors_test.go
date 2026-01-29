@@ -6,62 +6,73 @@ import (
 	"testing"
 
 	"todo-api/pkg/domain"
-	"todo-api/test"
 )
 
-func TestDomainErrors_ErrorsIs(t *testing.T) {
-	testCases := []struct {
-		name string
-		err  error
-	}{
-		{"ErrTodoNotFound", domain.ErrTodoNotFound},
-		{"ErrInvalidStatus", domain.ErrInvalidStatus},
-		{"ErrInvalidPriority", domain.ErrInvalidPriority},
-		{"ErrInvalidTitle", domain.ErrInvalidTitle},
-		{"ErrInvalidDescription", domain.ErrInvalidDescription},
-		{"ErrInvalidID", domain.ErrInvalidID},
-		{"ErrEmptyUpdateRequest", domain.ErrEmptyUpdateRequest},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			// Arrange
-			assert := test.NewAssert(t)
-
-			// Act & Assert
-			assert.ErrorIs(tc.err, tc.err)
-		})
+func TestErrTodoNotFound_ErrorsIs(t *testing.T) {
+	if !errors.Is(domain.ErrTodoNotFound, domain.ErrTodoNotFound) {
+		t.Error("expected ErrTodoNotFound to match itself")
 	}
 }
 
-func TestDomainErrors_WrappedErrorsIs(t *testing.T) {
-	t.Run("wrapped ErrTodoNotFound should be identifiable", func(t *testing.T) {
-		// Arrange
-		assert := test.NewAssert(t)
-		wrappedErr := fmt.Errorf("service error: %w", domain.ErrTodoNotFound)
+func TestErrInvalidStatus_ErrorsIs(t *testing.T) {
+	if !errors.Is(domain.ErrInvalidStatus, domain.ErrInvalidStatus) {
+		t.Error("expected ErrInvalidStatus to match itself")
+	}
+}
 
-		// Act & Assert
-		assert.ErrorIs(wrappedErr, domain.ErrTodoNotFound)
-	})
+func TestErrInvalidPriority_ErrorsIs(t *testing.T) {
+	if !errors.Is(domain.ErrInvalidPriority, domain.ErrInvalidPriority) {
+		t.Error("expected ErrInvalidPriority to match itself")
+	}
+}
 
-	t.Run("wrapped ErrInvalidID should be identifiable", func(t *testing.T) {
-		// Arrange
-		assert := test.NewAssert(t)
-		wrappedErr := fmt.Errorf("validation failed: %w", domain.ErrInvalidID)
+func TestErrInvalidTitle_ErrorsIs(t *testing.T) {
+	if !errors.Is(domain.ErrInvalidTitle, domain.ErrInvalidTitle) {
+		t.Error("expected ErrInvalidTitle to match itself")
+	}
+}
 
-		// Act & Assert
-		assert.ErrorIs(wrappedErr, domain.ErrInvalidID)
-	})
+func TestErrInvalidDescription_ErrorsIs(t *testing.T) {
+	if !errors.Is(domain.ErrInvalidDescription, domain.ErrInvalidDescription) {
+		t.Error("expected ErrInvalidDescription to match itself")
+	}
+}
 
-	t.Run("double wrapped error should be identifiable", func(t *testing.T) {
-		// Arrange
-		assert := test.NewAssert(t)
-		firstWrap := fmt.Errorf("layer 1: %w", domain.ErrInvalidStatus)
-		secondWrap := fmt.Errorf("layer 2: %w", firstWrap)
+func TestErrInvalidID_ErrorsIs(t *testing.T) {
+	if !errors.Is(domain.ErrInvalidID, domain.ErrInvalidID) {
+		t.Error("expected ErrInvalidID to match itself")
+	}
+}
 
-		// Act & Assert
-		assert.ErrorIs(secondWrap, domain.ErrInvalidStatus)
-	})
+func TestErrEmptyUpdateRequest_ErrorsIs(t *testing.T) {
+	if !errors.Is(domain.ErrEmptyUpdateRequest, domain.ErrEmptyUpdateRequest) {
+		t.Error("expected ErrEmptyUpdateRequest to match itself")
+	}
+}
+
+func TestWrappedErrTodoNotFound_IsIdentifiable(t *testing.T) {
+	wrappedErr := fmt.Errorf("service error: %w", domain.ErrTodoNotFound)
+
+	if !errors.Is(wrappedErr, domain.ErrTodoNotFound) {
+		t.Error("expected wrapped ErrTodoNotFound to be identifiable")
+	}
+}
+
+func TestWrappedErrInvalidID_IsIdentifiable(t *testing.T) {
+	wrappedErr := fmt.Errorf("validation failed: %w", domain.ErrInvalidID)
+
+	if !errors.Is(wrappedErr, domain.ErrInvalidID) {
+		t.Error("expected wrapped ErrInvalidID to be identifiable")
+	}
+}
+
+func TestDoubleWrappedError_IsIdentifiable(t *testing.T) {
+	firstWrap := fmt.Errorf("layer 1: %w", domain.ErrInvalidStatus)
+	secondWrap := fmt.Errorf("layer 2: %w", firstWrap)
+
+	if !errors.Is(secondWrap, domain.ErrInvalidStatus) {
+		t.Error("expected double wrapped error to be identifiable")
+	}
 }
 
 type customError struct {
@@ -72,100 +83,78 @@ func (e *customError) Error() string {
 	return e.msg
 }
 
-func TestDomainErrors_ErrorsAs(t *testing.T) {
-	t.Run("wrapped custom error should be extractable with ErrorAs", func(t *testing.T) {
-		// Arrange
-		assert := test.NewAssert(t)
-		originalErr := &customError{msg: "custom error"}
-		wrappedErr := fmt.Errorf("wrapped: %w", originalErr)
-		var target *customError
+func TestWrappedCustomError_ExtractableWithErrorAs(t *testing.T) {
+	originalErr := &customError{msg: "custom error"}
+	wrappedErr := fmt.Errorf("wrapped: %w", originalErr)
+	var target *customError
 
-		// Act
-		result := errors.As(wrappedErr, &target)
+	result := errors.As(wrappedErr, &target)
 
-		// Assert
-		assert.True(result)
-		assert.Equal("custom error", target.msg)
-	})
-}
-
-func TestDomainErrors_Messages(t *testing.T) {
-	testCases := []struct {
-		name            string
-		err             error
-		expectedMessage string
-	}{
-		{
-			name:            "ErrTodoNotFound message",
-			err:             domain.ErrTodoNotFound,
-			expectedMessage: "todo not found",
-		},
-		{
-			name:            "ErrInvalidStatus message",
-			err:             domain.ErrInvalidStatus,
-			expectedMessage: "invalid status: must be pending, in_progress, or completed",
-		},
-		{
-			name:            "ErrInvalidPriority message",
-			err:             domain.ErrInvalidPriority,
-			expectedMessage: "invalid priority: must be low, medium, or high",
-		},
-		{
-			name:            "ErrInvalidTitle message",
-			err:             domain.ErrInvalidTitle,
-			expectedMessage: "invalid title: must be between 1 and 100 characters",
-		},
-		{
-			name:            "ErrInvalidDescription message",
-			err:             domain.ErrInvalidDescription,
-			expectedMessage: "invalid description: must be at most 500 characters",
-		},
-		{
-			name:            "ErrInvalidID message",
-			err:             domain.ErrInvalidID,
-			expectedMessage: "invalid id: must be a valid UUID",
-		},
-		{
-			name:            "ErrEmptyUpdateRequest message",
-			err:             domain.ErrEmptyUpdateRequest,
-			expectedMessage: "update request must contain at least one field",
-		},
+	if !result {
+		t.Error("expected errors.As to return true")
 	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			// Arrange
-			assert := test.NewAssert(t)
-
-			// Act
-			message := tc.err.Error()
-
-			// Assert
-			assert.Equal(tc.expectedMessage, message)
-		})
+	if target.msg != "custom error" {
+		t.Errorf("expected message %s, got %s", "custom error", target.msg)
 	}
 }
 
-func TestDomainErrors_NotEqual(t *testing.T) {
-	t.Run("different errors should not match with ErrorIs", func(t *testing.T) {
-		// Arrange
-		assert := test.NewAssert(t)
+func TestErrTodoNotFound_Message(t *testing.T) {
+	expected := "todo not found"
+	if domain.ErrTodoNotFound.Error() != expected {
+		t.Errorf("expected message %s, got %s", expected, domain.ErrTodoNotFound.Error())
+	}
+}
 
-		// Act
-		result := errors.Is(domain.ErrTodoNotFound, domain.ErrInvalidID)
+func TestErrInvalidStatus_Message(t *testing.T) {
+	expected := "invalid status: must be pending, in_progress, or completed"
+	if domain.ErrInvalidStatus.Error() != expected {
+		t.Errorf("expected message %s, got %s", expected, domain.ErrInvalidStatus.Error())
+	}
+}
 
-		// Assert
-		assert.False(result)
-	})
+func TestErrInvalidPriority_Message(t *testing.T) {
+	expected := "invalid priority: must be low, medium, or high"
+	if domain.ErrInvalidPriority.Error() != expected {
+		t.Errorf("expected message %s, got %s", expected, domain.ErrInvalidPriority.Error())
+	}
+}
 
-	t.Run("ErrInvalidStatus should not match ErrInvalidPriority", func(t *testing.T) {
-		// Arrange
-		assert := test.NewAssert(t)
+func TestErrInvalidTitle_Message(t *testing.T) {
+	expected := "invalid title: must be between 1 and 100 characters"
+	if domain.ErrInvalidTitle.Error() != expected {
+		t.Errorf("expected message %s, got %s", expected, domain.ErrInvalidTitle.Error())
+	}
+}
 
-		// Act
-		result := errors.Is(domain.ErrInvalidStatus, domain.ErrInvalidPriority)
+func TestErrInvalidDescription_Message(t *testing.T) {
+	expected := "invalid description: must be at most 500 characters"
+	if domain.ErrInvalidDescription.Error() != expected {
+		t.Errorf("expected message %s, got %s", expected, domain.ErrInvalidDescription.Error())
+	}
+}
 
-		// Assert
-		assert.False(result)
-	})
+func TestErrInvalidID_Message(t *testing.T) {
+	expected := "invalid id: must be a valid UUID"
+	if domain.ErrInvalidID.Error() != expected {
+		t.Errorf("expected message %s, got %s", expected, domain.ErrInvalidID.Error())
+	}
+}
+
+func TestErrEmptyUpdateRequest_Message(t *testing.T) {
+	expected := "update request must contain at least one field"
+	if domain.ErrEmptyUpdateRequest.Error() != expected {
+		t.Errorf("expected message %s, got %s", expected, domain.ErrEmptyUpdateRequest.Error())
+	}
+}
+
+func TestDifferentErrors_ShouldNotMatch(t *testing.T) {
+	if errors.Is(domain.ErrTodoNotFound, domain.ErrInvalidID) {
+		t.Error("expected ErrTodoNotFound to not match ErrInvalidID")
+	}
+}
+
+func TestErrInvalidStatus_ShouldNotMatchErrInvalidPriority(t *testing.T) {
+	if errors.Is(domain.ErrInvalidStatus, domain.ErrInvalidPriority) {
+		t.Error("expected ErrInvalidStatus to not match ErrInvalidPriority")
+	}
 }

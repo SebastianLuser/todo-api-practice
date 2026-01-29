@@ -1,13 +1,9 @@
 package controller_test
 
 import (
-	"bytes"
-	"context"
-	"io"
-	"mime/multipart"
 	"net/http"
-	"net/url"
 	"testing"
+	"time"
 
 	"todo-api/pkg/controller"
 	"todo-api/pkg/domain"
@@ -15,60 +11,45 @@ import (
 	"todo-api/web"
 )
 
-// mockRequest implements web.Request for testing
-type mockRequest struct {
-	ctx     context.Context
-	params  map[string]string
-	queries map[string]string
-	body    string
+const (
+	validUUID          = "123e4567-e89b-12d3-a456-426614174000"
+	invalidUUID        = "not-a-valid-uuid"
+	invalidStatus      = "invalid_status"
+	invalidPriority    = "invalid_priority"
+	maxTitleLength     = 100
+	maxDescriptionLength = 500
+)
+
+var fixedTime = time.Date(2026, 1, 28, 10, 30, 0, 0, time.UTC)
+
+func buildLongString(length int) string {
+	result := make([]byte, length)
+	for i := range result {
+		result[i] = 'a'
+	}
+	return string(result)
 }
 
-func newMockRequest() *mockRequest {
-	return &mockRequest{
-		ctx:     context.Background(),
-		params:  make(map[string]string),
-		queries: make(map[string]string),
+func titleTooLong() string {
+	return buildLongString(maxTitleLength + 1)
+}
+
+func descriptionTooLong() string {
+	return buildLongString(maxDescriptionLength + 1)
+}
+
+func buildValidTodo() domain.Todo {
+	return domain.Todo{
+		ID:          validUUID,
+		Title:       "Test Todo",
+		Description: "This is a test description",
+		Status:      domain.StatusPending,
+		Priority:    domain.PriorityMedium,
+		CreatedAt:   fixedTime,
+		UpdatedAt:   fixedTime,
 	}
 }
 
-func (m *mockRequest) withParam(key, value string) *mockRequest {
-	m.params[key] = value
-	return m
-}
-
-func (m *mockRequest) withQuery(key, value string) *mockRequest {
-	m.queries[key] = value
-	return m
-}
-
-func (m *mockRequest) withBody(body string) *mockRequest {
-	m.body = body
-	return m
-}
-
-func (m *mockRequest) Context() context.Context                           { return m.ctx }
-func (m *mockRequest) Raw() *http.Request                                 { return &http.Request{} }
-func (m *mockRequest) DeclaredPath() string                               { return "" }
-func (m *mockRequest) Params() []web.Param                                { return nil }
-func (m *mockRequest) Queries() url.Values                                { return nil }
-func (m *mockRequest) Headers() http.Header                               { return nil }
-func (m *mockRequest) Body() io.ReadCloser                                { return io.NopCloser(bytes.NewBufferString(m.body)) }
-func (m *mockRequest) Header(key string) ([]string, bool)                 { return nil, false }
-func (m *mockRequest) FormFile(key string) (*multipart.FileHeader, error) { return nil, nil }
-func (m *mockRequest) FormValue(key string) (string, bool)                { return "", false }
-func (m *mockRequest) MultipartForm() (*multipart.Form, error)            { return nil, nil }
-
-func (m *mockRequest) Param(key string) (string, bool) {
-	v, ok := m.params[key]
-	return v, ok
-}
-
-func (m *mockRequest) Query(key string) (string, bool) {
-	v, ok := m.queries[key]
-	return v, ok
-}
-
-// newTestController creates a controller with error handler for testing
 func newTestController() *controller.Todo {
 	errHandler := web.NewErrorHandler(
 		web.NewErrorHandlerValueMapper(domain.ErrTodoNotFound, http.StatusNotFound),
@@ -78,234 +59,257 @@ func newTestController() *controller.Todo {
 		web.NewErrorHandlerValueMapper(domain.ErrInvalidID, http.StatusBadRequest),
 		web.NewErrorHandlerValueMapper(domain.ErrEmptyUpdateRequest, http.StatusBadRequest),
 	)
-	// Note: We pass nil usecase because we're testing validation logic only
-	// For full integration tests, you would inject a mock usecase
 	return controller.New(nil, errHandler)
 }
 
-func TestTodoController_Get(t *testing.T) {
-	t.Run("should return 400 for invalid status filter", func(t *testing.T) {
-		assert := test.NewAssert(t)
-		ctrl := newTestController()
-		req := newMockRequest().withQuery("status", test.InvalidStatus)
+func TestTodoController_Get_InvalidStatusFilter(t *testing.T) {
+	ctrl := newTestController()
+	req := test.NewMockRequest().WithQuery("status", invalidStatus)
 
-		response := ctrl.Get(req)
+	response := ctrl.Get(req)
 
-		assert.StatusCode(http.StatusBadRequest, response.Status)
-	})
-
-	t.Run("should return 400 for invalid priority filter", func(t *testing.T) {
-		assert := test.NewAssert(t)
-		ctrl := newTestController()
-		req := newMockRequest().withQuery("priority", test.InvalidPriority)
-
-		response := ctrl.Get(req)
-
-		assert.StatusCode(http.StatusBadRequest, response.Status)
-	})
+	if response.Status != http.StatusBadRequest {
+		t.Errorf("expected status %d, got %d", http.StatusBadRequest, response.Status)
+	}
 }
 
-func TestTodoController_GetByID(t *testing.T) {
-	t.Run("should return 400 when id param is missing", func(t *testing.T) {
-		assert := test.NewAssert(t)
-		ctrl := newTestController()
-		req := newMockRequest()
+func TestTodoController_Get_InvalidPriorityFilter(t *testing.T) {
+	ctrl := newTestController()
+	req := test.NewMockRequest().WithQuery("priority", invalidPriority)
 
-		response := ctrl.GetByID(req)
+	response := ctrl.Get(req)
 
-		assert.StatusCode(http.StatusBadRequest, response.Status)
-	})
-
-	t.Run("should return 400 for invalid UUID", func(t *testing.T) {
-		assert := test.NewAssert(t)
-		ctrl := newTestController()
-		req := newMockRequest().withParam("id", test.InvalidUUID)
-
-		response := ctrl.GetByID(req)
-
-		assert.StatusCode(http.StatusBadRequest, response.Status)
-	})
+	if response.Status != http.StatusBadRequest {
+		t.Errorf("expected status %d, got %d", http.StatusBadRequest, response.Status)
+	}
 }
 
-func TestTodoController_Create(t *testing.T) {
-	t.Run("should return 400 for invalid JSON body", func(t *testing.T) {
-		assert := test.NewAssert(t)
-		ctrl := newTestController()
-		req := newMockRequest().withBody("invalid json")
+func TestTodoController_GetByID_MissingParam(t *testing.T) {
+	ctrl := newTestController()
+	req := test.NewMockRequest()
 
-		response := ctrl.Create(req)
+	response := ctrl.GetByID(req)
 
-		assert.StatusCode(http.StatusBadRequest, response.Status)
-	})
-
-	t.Run("should return 400 for empty title", func(t *testing.T) {
-		assert := test.NewAssert(t)
-		ctrl := newTestController()
-		req := newMockRequest().withBody(`{"title": ""}`)
-
-		response := ctrl.Create(req)
-
-		assert.StatusCode(http.StatusBadRequest, response.Status)
-	})
-
-	t.Run("should return 400 for title too long", func(t *testing.T) {
-		assert := test.NewAssert(t)
-		ctrl := newTestController()
-		req := newMockRequest().withBody(`{"title": "` + test.TitleTooLong() + `"}`)
-
-		response := ctrl.Create(req)
-
-		assert.StatusCode(http.StatusBadRequest, response.Status)
-	})
-
-	t.Run("should return 400 for invalid status", func(t *testing.T) {
-		assert := test.NewAssert(t)
-		ctrl := newTestController()
-		req := newMockRequest().withBody(`{"title": "Test", "status": "` + test.InvalidStatus + `"}`)
-
-		response := ctrl.Create(req)
-
-		assert.StatusCode(http.StatusBadRequest, response.Status)
-	})
-
-	t.Run("should return 400 for invalid priority", func(t *testing.T) {
-		assert := test.NewAssert(t)
-		ctrl := newTestController()
-		req := newMockRequest().withBody(`{"title": "Test", "priority": "` + test.InvalidPriority + `"}`)
-
-		response := ctrl.Create(req)
-
-		assert.StatusCode(http.StatusBadRequest, response.Status)
-	})
-
-	t.Run("should return 400 for description too long", func(t *testing.T) {
-		assert := test.NewAssert(t)
-		ctrl := newTestController()
-		req := newMockRequest().withBody(`{"title": "Test", "description": "` + test.DescriptionTooLong() + `"}`)
-
-		response := ctrl.Create(req)
-
-		assert.StatusCode(http.StatusBadRequest, response.Status)
-	})
+	if response.Status != http.StatusBadRequest {
+		t.Errorf("expected status %d, got %d", http.StatusBadRequest, response.Status)
+	}
 }
 
-func TestTodoController_Update(t *testing.T) {
-	t.Run("should return 400 when id param is missing", func(t *testing.T) {
-		assert := test.NewAssert(t)
-		ctrl := newTestController()
-		req := newMockRequest()
+func TestTodoController_GetByID_InvalidUUID(t *testing.T) {
+	ctrl := newTestController()
+	req := test.NewMockRequest().WithParam("id", invalidUUID)
 
-		response := ctrl.Update(req)
+	response := ctrl.GetByID(req)
 
-		assert.StatusCode(http.StatusBadRequest, response.Status)
-	})
-
-	t.Run("should return 400 for invalid UUID", func(t *testing.T) {
-		assert := test.NewAssert(t)
-		ctrl := newTestController()
-		req := newMockRequest().withParam("id", test.InvalidUUID)
-
-		response := ctrl.Update(req)
-
-		assert.StatusCode(http.StatusBadRequest, response.Status)
-	})
-
-	t.Run("should return 400 for empty update body", func(t *testing.T) {
-		assert := test.NewAssert(t)
-		ctrl := newTestController()
-		req := newMockRequest().
-			withParam("id", test.ValidUUID).
-			withBody(`{}`)
-
-		response := ctrl.Update(req)
-
-		assert.StatusCode(http.StatusBadRequest, response.Status)
-	})
-
-	t.Run("should return 400 for empty title in update", func(t *testing.T) {
-		assert := test.NewAssert(t)
-		ctrl := newTestController()
-		req := newMockRequest().
-			withParam("id", test.ValidUUID).
-			withBody(`{"title": ""}`)
-
-		response := ctrl.Update(req)
-
-		assert.StatusCode(http.StatusBadRequest, response.Status)
-	})
-
-	t.Run("should return 400 for invalid status in update", func(t *testing.T) {
-		assert := test.NewAssert(t)
-		ctrl := newTestController()
-		req := newMockRequest().
-			withParam("id", test.ValidUUID).
-			withBody(`{"status": "` + test.InvalidStatus + `"}`)
-
-		response := ctrl.Update(req)
-
-		assert.StatusCode(http.StatusBadRequest, response.Status)
-	})
+	if response.Status != http.StatusBadRequest {
+		t.Errorf("expected status %d, got %d", http.StatusBadRequest, response.Status)
+	}
 }
 
-func TestTodoController_Delete(t *testing.T) {
-	t.Run("should return 400 when id param is missing", func(t *testing.T) {
-		assert := test.NewAssert(t)
-		ctrl := newTestController()
-		req := newMockRequest()
+func TestTodoController_Create_InvalidJSON(t *testing.T) {
+	ctrl := newTestController()
+	req := test.NewMockRequest().WithBody("invalid json")
 
-		response := ctrl.Delete(req)
+	response := ctrl.Create(req)
 
-		assert.StatusCode(http.StatusBadRequest, response.Status)
-	})
+	if response.Status != http.StatusBadRequest {
+		t.Errorf("expected status %d, got %d", http.StatusBadRequest, response.Status)
+	}
+}
 
-	t.Run("should return 400 for invalid UUID", func(t *testing.T) {
-		assert := test.NewAssert(t)
-		ctrl := newTestController()
-		req := newMockRequest().withParam("id", test.InvalidUUID)
+func TestTodoController_Create_EmptyTitle(t *testing.T) {
+	ctrl := newTestController()
+	req := test.NewMockRequest().WithBody(`{"title": ""}`)
 
-		response := ctrl.Delete(req)
+	response := ctrl.Create(req)
 
-		assert.StatusCode(http.StatusBadRequest, response.Status)
-	})
+	if response.Status != http.StatusBadRequest {
+		t.Errorf("expected status %d, got %d", http.StatusBadRequest, response.Status)
+	}
+}
+
+func TestTodoController_Create_TitleTooLong(t *testing.T) {
+	ctrl := newTestController()
+	req := test.NewMockRequest().WithBody(`{"title": "` + titleTooLong() + `"}`)
+
+	response := ctrl.Create(req)
+
+	if response.Status != http.StatusBadRequest {
+		t.Errorf("expected status %d, got %d", http.StatusBadRequest, response.Status)
+	}
+}
+
+func TestTodoController_Create_InvalidStatus(t *testing.T) {
+	ctrl := newTestController()
+	req := test.NewMockRequest().WithBody(`{"title": "Test", "status": "` + invalidStatus + `"}`)
+
+	response := ctrl.Create(req)
+
+	if response.Status != http.StatusBadRequest {
+		t.Errorf("expected status %d, got %d", http.StatusBadRequest, response.Status)
+	}
+}
+
+func TestTodoController_Create_InvalidPriority(t *testing.T) {
+	ctrl := newTestController()
+	req := test.NewMockRequest().WithBody(`{"title": "Test", "priority": "` + invalidPriority + `"}`)
+
+	response := ctrl.Create(req)
+
+	if response.Status != http.StatusBadRequest {
+		t.Errorf("expected status %d, got %d", http.StatusBadRequest, response.Status)
+	}
+}
+
+func TestTodoController_Create_DescriptionTooLong(t *testing.T) {
+	ctrl := newTestController()
+	req := test.NewMockRequest().WithBody(`{"title": "Test", "description": "` + descriptionTooLong() + `"}`)
+
+	response := ctrl.Create(req)
+
+	if response.Status != http.StatusBadRequest {
+		t.Errorf("expected status %d, got %d", http.StatusBadRequest, response.Status)
+	}
+}
+
+func TestTodoController_Update_MissingParam(t *testing.T) {
+	ctrl := newTestController()
+	req := test.NewMockRequest()
+
+	response := ctrl.Update(req)
+
+	if response.Status != http.StatusBadRequest {
+		t.Errorf("expected status %d, got %d", http.StatusBadRequest, response.Status)
+	}
+}
+
+func TestTodoController_Update_InvalidUUID(t *testing.T) {
+	ctrl := newTestController()
+	req := test.NewMockRequest().WithParam("id", invalidUUID)
+
+	response := ctrl.Update(req)
+
+	if response.Status != http.StatusBadRequest {
+		t.Errorf("expected status %d, got %d", http.StatusBadRequest, response.Status)
+	}
+}
+
+func TestTodoController_Update_EmptyBody(t *testing.T) {
+	ctrl := newTestController()
+	req := test.NewMockRequest().
+		WithParam("id", validUUID).
+		WithBody(`{}`)
+
+	response := ctrl.Update(req)
+
+	if response.Status != http.StatusBadRequest {
+		t.Errorf("expected status %d, got %d", http.StatusBadRequest, response.Status)
+	}
+}
+
+func TestTodoController_Update_EmptyTitle(t *testing.T) {
+	ctrl := newTestController()
+	req := test.NewMockRequest().
+		WithParam("id", validUUID).
+		WithBody(`{"title": ""}`)
+
+	response := ctrl.Update(req)
+
+	if response.Status != http.StatusBadRequest {
+		t.Errorf("expected status %d, got %d", http.StatusBadRequest, response.Status)
+	}
+}
+
+func TestTodoController_Update_InvalidStatus(t *testing.T) {
+	ctrl := newTestController()
+	req := test.NewMockRequest().
+		WithParam("id", validUUID).
+		WithBody(`{"status": "` + invalidStatus + `"}`)
+
+	response := ctrl.Update(req)
+
+	if response.Status != http.StatusBadRequest {
+		t.Errorf("expected status %d, got %d", http.StatusBadRequest, response.Status)
+	}
+}
+
+func TestTodoController_Delete_MissingParam(t *testing.T) {
+	ctrl := newTestController()
+	req := test.NewMockRequest()
+
+	response := ctrl.Delete(req)
+
+	if response.Status != http.StatusBadRequest {
+		t.Errorf("expected status %d, got %d", http.StatusBadRequest, response.Status)
+	}
+}
+
+func TestTodoController_Delete_InvalidUUID(t *testing.T) {
+	ctrl := newTestController()
+	req := test.NewMockRequest().WithParam("id", invalidUUID)
+
+	response := ctrl.Delete(req)
+
+	if response.Status != http.StatusBadRequest {
+		t.Errorf("expected status %d, got %d", http.StatusBadRequest, response.Status)
+	}
 }
 
 func TestMapTodoToResponse(t *testing.T) {
-	t.Run("should map todo to response correctly", func(t *testing.T) {
-		assert := test.NewAssert(t)
-		todo := test.BuildValidTodo()
+	todo := buildValidTodo()
 
-		response := controller.MapTodoToResponse(todo)
+	response := controller.MapTodoToResponse(todo)
 
-		assert.Equal(todo.ID, response.ID)
-		assert.Equal(todo.Title, response.Title)
-		assert.Equal(todo.Description, response.Description)
-		assert.Equal(string(todo.Status), response.Status)
-		assert.Equal(string(todo.Priority), response.Priority)
-		assert.Equal(test.FixedTimeStr, response.CreatedAt)
-		assert.Equal(test.FixedTimeStr, response.UpdatedAt)
-	})
+	if response.ID != todo.ID {
+		t.Errorf("expected ID %s, got %s", todo.ID, response.ID)
+	}
+	if response.Title != todo.Title {
+		t.Errorf("expected title %s, got %s", todo.Title, response.Title)
+	}
+	if response.Description != todo.Description {
+		t.Errorf("expected description %s, got %s", todo.Description, response.Description)
+	}
+	if response.Status != string(todo.Status) {
+		t.Errorf("expected status %s, got %s", string(todo.Status), response.Status)
+	}
+	if response.Priority != string(todo.Priority) {
+		t.Errorf("expected priority %s, got %s", string(todo.Priority), response.Priority)
+	}
+	expectedTimeStr := "2026-01-28T10:30:00Z"
+	if response.CreatedAt != expectedTimeStr {
+		t.Errorf("expected createdAt %s, got %s", expectedTimeStr, response.CreatedAt)
+	}
+	if response.UpdatedAt != expectedTimeStr {
+		t.Errorf("expected updatedAt %s, got %s", expectedTimeStr, response.UpdatedAt)
+	}
 }
 
-func TestMapTodosToResponse(t *testing.T) {
-	t.Run("should map multiple todos to responses", func(t *testing.T) {
-		assert := test.NewAssert(t)
-		todo1 := test.BuildValidTodoWithID("1")
-		todo2 := test.BuildValidTodoWithID("2")
-		todos := []domain.Todo{todo1, todo2}
+func TestMapTodosToResponse_Multiple(t *testing.T) {
+	todo1 := buildValidTodo()
+	todo1.ID = "1"
+	todo2 := buildValidTodo()
+	todo2.ID = "2"
+	todos := []domain.Todo{todo1, todo2}
 
-		responses := controller.MapTodosToResponse(todos)
+	responses := controller.MapTodosToResponse(todos)
 
-		assert.Equal(2, len(responses))
-		assert.Equal("1", responses[0].ID)
-		assert.Equal("2", responses[1].ID)
-	})
+	if len(responses) != 2 {
+		t.Errorf("expected 2 responses, got %d", len(responses))
+	}
+	if responses[0].ID != "1" {
+		t.Errorf("expected first ID 1, got %s", responses[0].ID)
+	}
+	if responses[1].ID != "2" {
+		t.Errorf("expected second ID 2, got %s", responses[1].ID)
+	}
+}
 
-	t.Run("should return empty slice for empty input", func(t *testing.T) {
-		assert := test.NewAssert(t)
-		todos := []domain.Todo{}
+func TestMapTodosToResponse_Empty(t *testing.T) {
+	todos := []domain.Todo{}
 
-		responses := controller.MapTodosToResponse(todos)
+	responses := controller.MapTodosToResponse(todos)
 
-		assert.Equal(0, len(responses))
-	})
+	if len(responses) != 0 {
+		t.Errorf("expected 0 responses, got %d", len(responses))
+	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"todo-api/pkg/domain"
 	"todo-api/pkg/service"
@@ -11,301 +12,273 @@ import (
 	"todo-api/test"
 )
 
-// mockTodoService implements service.Todo for testing
-type mockTodoService struct {
-	getFn      func(ctx context.Context, filters service.Filters) ([]domain.Todo, error)
-	getByIDFn  func(ctx context.Context, id string) (domain.Todo, error)
-	createFn   func(ctx context.Context, input service.CreateInput) (domain.Todo, error)
-	updateFn   func(ctx context.Context, id string, input service.UpdateInput) (domain.Todo, error)
-	deleteFn   func(ctx context.Context, id string) error
+const (
+	validUUID     = "123e4567-e89b-12d3-a456-426614174000"
+	nonExistentID = "00000000-0000-0000-0000-000000000000"
+	validTitle    = "Test Todo"
+	updatedTitle  = "Updated Title"
+)
+
+var fixedTime = time.Date(2026, 1, 28, 10, 30, 0, 0, time.UTC)
+
+func buildValidTodo() domain.Todo {
+	return domain.Todo{
+		ID:          validUUID,
+		Title:       validTitle,
+		Description: "This is a test description",
+		Status:      domain.StatusPending,
+		Priority:    domain.PriorityMedium,
+		CreatedAt:   fixedTime,
+		UpdatedAt:   fixedTime,
+	}
 }
 
-func (m *mockTodoService) Get(ctx context.Context, filters service.Filters) ([]domain.Todo, error) {
-	return m.getFn(ctx, filters)
+func TestTodo_Get_ReturnsListSuccessfully(t *testing.T) {
+	expectedTodo := buildValidTodo()
+	expectedTodos := []domain.Todo{expectedTodo}
+	mock := &test.MockTodoService{
+		GetFn: func(ctx context.Context, filters service.Filters) ([]domain.Todo, error) {
+			return expectedTodos, nil
+		},
+	}
+	uc := usecase.New(mock)
+	input := usecase.ListInput{}
+
+	result, err := uc.Get(context.Background(), input)
+
+	if err != nil {
+		t.Errorf("expected no error, got %v", err)
+	}
+	if result.Total != 1 {
+		t.Errorf("expected total 1, got %d", result.Total)
+	}
+	if result.Todos[0].ID != expectedTodo.ID {
+		t.Errorf("expected ID %s, got %s", expectedTodo.ID, result.Todos[0].ID)
+	}
 }
 
-func (m *mockTodoService) GetByID(ctx context.Context, id string) (domain.Todo, error) {
-	return m.getByIDFn(ctx, id)
+func TestTodo_Get_PassesStatusFilterToService(t *testing.T) {
+	var capturedFilters service.Filters
+	mock := &test.MockTodoService{
+		GetFn: func(ctx context.Context, filters service.Filters) ([]domain.Todo, error) {
+			capturedFilters = filters
+			return []domain.Todo{}, nil
+		},
+	}
+	uc := usecase.New(mock)
+	status := domain.StatusCompleted
+	input := usecase.ListInput{Status: &status}
+
+	_, err := uc.Get(context.Background(), input)
+
+	if err != nil {
+		t.Errorf("expected no error, got %v", err)
+	}
+	if capturedFilters.Status == nil {
+		t.Error("expected status filter to be set")
+	}
+	if *capturedFilters.Status != domain.StatusCompleted {
+		t.Errorf("expected status %s, got %s", domain.StatusCompleted, *capturedFilters.Status)
+	}
 }
 
-func (m *mockTodoService) Create(ctx context.Context, input service.CreateInput) (domain.Todo, error) {
-	return m.createFn(ctx, input)
+func TestTodo_Get_ReturnsErrorWhenServiceFails(t *testing.T) {
+	expectedErr := errors.New("database error")
+	mock := &test.MockTodoService{
+		GetFn: func(ctx context.Context, filters service.Filters) ([]domain.Todo, error) {
+			return nil, expectedErr
+		},
+	}
+	uc := usecase.New(mock)
+
+	_, err := uc.Get(context.Background(), usecase.ListInput{})
+
+	if !errors.Is(err, expectedErr) {
+		t.Errorf("expected error %v, got %v", expectedErr, err)
+	}
 }
 
-func (m *mockTodoService) Update(ctx context.Context, id string, input service.UpdateInput) (domain.Todo, error) {
-	return m.updateFn(ctx, id, input)
+func TestTodo_GetByID_ReturnsTodoSuccessfully(t *testing.T) {
+	expectedTodo := buildValidTodo()
+	mock := &test.MockTodoService{
+		GetByIDFn: func(ctx context.Context, id string) (domain.Todo, error) {
+			return expectedTodo, nil
+		},
+	}
+	uc := usecase.New(mock)
+
+	result, err := uc.GetByID(context.Background(), validUUID)
+
+	if err != nil {
+		t.Errorf("expected no error, got %v", err)
+	}
+	if result.Todo.ID != expectedTodo.ID {
+		t.Errorf("expected ID %s, got %s", expectedTodo.ID, result.Todo.ID)
+	}
+	if result.Todo.Title != expectedTodo.Title {
+		t.Errorf("expected title %s, got %s", expectedTodo.Title, result.Todo.Title)
+	}
 }
 
-func (m *mockTodoService) Delete(ctx context.Context, id string) error {
-	return m.deleteFn(ctx, id)
+func TestTodo_GetByID_ReturnsErrTodoNotFound(t *testing.T) {
+	mock := &test.MockTodoService{
+		GetByIDFn: func(ctx context.Context, id string) (domain.Todo, error) {
+			return domain.Todo{}, domain.ErrTodoNotFound
+		},
+	}
+	uc := usecase.New(mock)
+
+	_, err := uc.GetByID(context.Background(), nonExistentID)
+
+	if !errors.Is(err, domain.ErrTodoNotFound) {
+		t.Errorf("expected error %v, got %v", domain.ErrTodoNotFound, err)
+	}
 }
 
-func TestTodo_Get(t *testing.T) {
-	t.Run("should return todos list successfully", func(t *testing.T) {
-		// Arrange
-		assert := test.NewAssert(t)
-		expectedTodo := test.BuildValidTodo()
-		expectedTodos := []domain.Todo{expectedTodo}
+func TestTodo_Create_WithDefaultStatusAndPriority(t *testing.T) {
+	var capturedInput service.CreateInput
+	expectedTodo := buildValidTodo()
+	mock := &test.MockTodoService{
+		CreateFn: func(ctx context.Context, input service.CreateInput) (domain.Todo, error) {
+			capturedInput = input
+			return expectedTodo, nil
+		},
+	}
+	uc := usecase.New(mock)
+	input := usecase.CreateInput{Title: validTitle}
 
-		mock := &mockTodoService{
-			getFn: func(ctx context.Context, filters service.Filters) ([]domain.Todo, error) {
-				return expectedTodos, nil
-			},
-		}
-		uc := usecase.New(mock)
-		input := usecase.ListInput{}
+	result, err := uc.Create(context.Background(), input)
 
-		// Act
-		result, err := uc.Get(context.Background(), input)
-
-		// Assert
-		assert.NoError(err)
-		assert.Equal(1, result.Total)
-		assert.Equal(expectedTodo.ID, result.Todos[0].ID)
-	})
-
-	t.Run("should pass status filter to service", func(t *testing.T) {
-		// Arrange
-		assert := test.NewAssert(t)
-		var capturedFilters service.Filters
-
-		mock := &mockTodoService{
-			getFn: func(ctx context.Context, filters service.Filters) ([]domain.Todo, error) {
-				capturedFilters = filters
-				return []domain.Todo{}, nil
-			},
-		}
-		uc := usecase.New(mock)
-		status := domain.StatusCompleted
-		input := usecase.ListInput{Status: &status}
-
-		// Act
-		_, err := uc.Get(context.Background(), input)
-
-		// Assert
-		assert.NoError(err)
-		assert.NotNil(capturedFilters.Status)
-		assert.Equal(domain.StatusCompleted, *capturedFilters.Status)
-	})
-
-	t.Run("should return error when service fails", func(t *testing.T) {
-		// Arrange
-		assert := test.NewAssert(t)
-		expectedErr := errors.New("database error")
-
-		mock := &mockTodoService{
-			getFn: func(ctx context.Context, filters service.Filters) ([]domain.Todo, error) {
-				return nil, expectedErr
-			},
-		}
-		uc := usecase.New(mock)
-
-		// Act
-		_, err := uc.Get(context.Background(), usecase.ListInput{})
-
-		// Assert
-		assert.ErrorIs(err, expectedErr)
-	})
+	if err != nil {
+		t.Errorf("expected no error, got %v", err)
+	}
+	if capturedInput.Status != domain.StatusPending {
+		t.Errorf("expected status %s, got %s", domain.StatusPending, capturedInput.Status)
+	}
+	if capturedInput.Priority != domain.PriorityMedium {
+		t.Errorf("expected priority %s, got %s", domain.PriorityMedium, capturedInput.Priority)
+	}
+	if result.Todo.ID != expectedTodo.ID {
+		t.Errorf("expected ID %s, got %s", expectedTodo.ID, result.Todo.ID)
+	}
 }
 
-func TestTodo_GetByID(t *testing.T) {
-	t.Run("should return todo by id successfully", func(t *testing.T) {
-		// Arrange
-		assert := test.NewAssert(t)
-		expectedTodo := test.BuildValidTodo()
+func TestTodo_Create_WithCustomStatusAndPriority(t *testing.T) {
+	var capturedInput service.CreateInput
+	mock := &test.MockTodoService{
+		CreateFn: func(ctx context.Context, input service.CreateInput) (domain.Todo, error) {
+			capturedInput = input
+			return buildValidTodo(), nil
+		},
+	}
+	uc := usecase.New(mock)
+	status := domain.StatusInProgress
+	priority := domain.PriorityHigh
+	input := usecase.CreateInput{
+		Title:    validTitle,
+		Status:   &status,
+		Priority: &priority,
+	}
 
-		mock := &mockTodoService{
-			getByIDFn: func(ctx context.Context, id string) (domain.Todo, error) {
-				return expectedTodo, nil
-			},
-		}
-		uc := usecase.New(mock)
+	_, err := uc.Create(context.Background(), input)
 
-		// Act
-		result, err := uc.GetByID(context.Background(), test.ValidUUID)
-
-		// Assert
-		assert.NoError(err)
-		assert.Equal(expectedTodo.ID, result.Todo.ID)
-		assert.Equal(expectedTodo.Title, result.Todo.Title)
-	})
-
-	t.Run("should return ErrTodoNotFound when todo does not exist", func(t *testing.T) {
-		// Arrange
-		assert := test.NewAssert(t)
-
-		mock := &mockTodoService{
-			getByIDFn: func(ctx context.Context, id string) (domain.Todo, error) {
-				return domain.Todo{}, domain.ErrTodoNotFound
-			},
-		}
-		uc := usecase.New(mock)
-
-		// Act
-		_, err := uc.GetByID(context.Background(), test.NonExistentID)
-
-		// Assert
-		assert.ErrorIs(err, domain.ErrTodoNotFound)
-	})
+	if err != nil {
+		t.Errorf("expected no error, got %v", err)
+	}
+	if capturedInput.Status != domain.StatusInProgress {
+		t.Errorf("expected status %s, got %s", domain.StatusInProgress, capturedInput.Status)
+	}
+	if capturedInput.Priority != domain.PriorityHigh {
+		t.Errorf("expected priority %s, got %s", domain.PriorityHigh, capturedInput.Priority)
+	}
 }
 
-func TestTodo_Create(t *testing.T) {
-	t.Run("should create todo with default status and priority", func(t *testing.T) {
-		// Arrange
-		assert := test.NewAssert(t)
-		var capturedInput service.CreateInput
-		expectedTodo := test.BuildValidTodo()
+func TestTodo_Create_ReturnsErrorWhenServiceFails(t *testing.T) {
+	expectedErr := errors.New("database error")
+	mock := &test.MockTodoService{
+		CreateFn: func(ctx context.Context, input service.CreateInput) (domain.Todo, error) {
+			return domain.Todo{}, expectedErr
+		},
+	}
+	uc := usecase.New(mock)
 
-		mock := &mockTodoService{
-			createFn: func(ctx context.Context, input service.CreateInput) (domain.Todo, error) {
-				capturedInput = input
-				return expectedTodo, nil
-			},
-		}
-		uc := usecase.New(mock)
-		input := usecase.CreateInput{Title: test.ValidTitle}
+	_, err := uc.Create(context.Background(), usecase.CreateInput{Title: validTitle})
 
-		// Act
-		result, err := uc.Create(context.Background(), input)
-
-		// Assert
-		assert.NoError(err)
-		assert.Equal(domain.StatusPending, capturedInput.Status)
-		assert.Equal(domain.PriorityMedium, capturedInput.Priority)
-		assert.Equal(expectedTodo.ID, result.Todo.ID)
-	})
-
-	t.Run("should create todo with custom status and priority", func(t *testing.T) {
-		// Arrange
-		assert := test.NewAssert(t)
-		var capturedInput service.CreateInput
-
-		mock := &mockTodoService{
-			createFn: func(ctx context.Context, input service.CreateInput) (domain.Todo, error) {
-				capturedInput = input
-				return test.BuildValidTodo(), nil
-			},
-		}
-		uc := usecase.New(mock)
-		status := domain.StatusInProgress
-		priority := domain.PriorityHigh
-		input := usecase.CreateInput{
-			Title:    test.ValidTitle,
-			Status:   &status,
-			Priority: &priority,
-		}
-
-		// Act
-		_, err := uc.Create(context.Background(), input)
-
-		// Assert
-		assert.NoError(err)
-		assert.Equal(domain.StatusInProgress, capturedInput.Status)
-		assert.Equal(domain.PriorityHigh, capturedInput.Priority)
-	})
-
-	t.Run("should return error when service fails", func(t *testing.T) {
-		// Arrange
-		assert := test.NewAssert(t)
-		expectedErr := errors.New("database error")
-
-		mock := &mockTodoService{
-			createFn: func(ctx context.Context, input service.CreateInput) (domain.Todo, error) {
-				return domain.Todo{}, expectedErr
-			},
-		}
-		uc := usecase.New(mock)
-
-		// Act
-		_, err := uc.Create(context.Background(), usecase.CreateInput{Title: test.ValidTitle})
-
-		// Assert
-		assert.ErrorIs(err, expectedErr)
-	})
+	if !errors.Is(err, expectedErr) {
+		t.Errorf("expected error %v, got %v", expectedErr, err)
+	}
 }
 
-func TestTodo_Update(t *testing.T) {
-	t.Run("should update todo successfully", func(t *testing.T) {
-		// Arrange
-		assert := test.NewAssert(t)
-		expectedTodo := test.BuildValidTodo()
-		expectedTodo.Title = test.UpdatedTitle
+func TestTodo_Update_Successfully(t *testing.T) {
+	expectedTodo := buildValidTodo()
+	expectedTodo.Title = updatedTitle
+	mock := &test.MockTodoService{
+		UpdateFn: func(ctx context.Context, id string, input service.UpdateInput) (domain.Todo, error) {
+			return expectedTodo, nil
+		},
+	}
+	uc := usecase.New(mock)
+	title := updatedTitle
+	input := usecase.UpdateInput{Title: &title}
 
-		mock := &mockTodoService{
-			updateFn: func(ctx context.Context, id string, input service.UpdateInput) (domain.Todo, error) {
-				return expectedTodo, nil
-			},
-		}
-		uc := usecase.New(mock)
-		title := test.UpdatedTitle
-		input := usecase.UpdateInput{Title: &title}
+	result, err := uc.Update(context.Background(), validUUID, input)
 
-		// Act
-		result, err := uc.Update(context.Background(), test.ValidUUID, input)
-
-		// Assert
-		assert.NoError(err)
-		assert.Equal(test.UpdatedTitle, result.Todo.Title)
-	})
-
-	t.Run("should return ErrTodoNotFound when todo does not exist", func(t *testing.T) {
-		// Arrange
-		assert := test.NewAssert(t)
-
-		mock := &mockTodoService{
-			updateFn: func(ctx context.Context, id string, input service.UpdateInput) (domain.Todo, error) {
-				return domain.Todo{}, domain.ErrTodoNotFound
-			},
-		}
-		uc := usecase.New(mock)
-		title := test.UpdatedTitle
-		input := usecase.UpdateInput{Title: &title}
-
-		// Act
-		_, err := uc.Update(context.Background(), test.NonExistentID, input)
-
-		// Assert
-		assert.ErrorIs(err, domain.ErrTodoNotFound)
-	})
+	if err != nil {
+		t.Errorf("expected no error, got %v", err)
+	}
+	if result.Todo.Title != updatedTitle {
+		t.Errorf("expected title %s, got %s", updatedTitle, result.Todo.Title)
+	}
 }
 
-func TestTodo_Delete(t *testing.T) {
-	t.Run("should delete todo successfully", func(t *testing.T) {
-		// Arrange
-		assert := test.NewAssert(t)
-		var capturedID string
+func TestTodo_Update_ReturnsErrTodoNotFound(t *testing.T) {
+	mock := &test.MockTodoService{
+		UpdateFn: func(ctx context.Context, id string, input service.UpdateInput) (domain.Todo, error) {
+			return domain.Todo{}, domain.ErrTodoNotFound
+		},
+	}
+	uc := usecase.New(mock)
+	title := updatedTitle
+	input := usecase.UpdateInput{Title: &title}
 
-		mock := &mockTodoService{
-			deleteFn: func(ctx context.Context, id string) error {
-				capturedID = id
-				return nil
-			},
-		}
-		uc := usecase.New(mock)
+	_, err := uc.Update(context.Background(), nonExistentID, input)
 
-		// Act
-		err := uc.Delete(context.Background(), test.ValidUUID)
+	if !errors.Is(err, domain.ErrTodoNotFound) {
+		t.Errorf("expected error %v, got %v", domain.ErrTodoNotFound, err)
+	}
+}
 
-		// Assert
-		assert.NoError(err)
-		assert.Equal(test.ValidUUID, capturedID)
-	})
+func TestTodo_Delete_Successfully(t *testing.T) {
+	var capturedID string
+	mock := &test.MockTodoService{
+		DeleteFn: func(ctx context.Context, id string) error {
+			capturedID = id
+			return nil
+		},
+	}
+	uc := usecase.New(mock)
 
-	t.Run("should return ErrTodoNotFound when todo does not exist", func(t *testing.T) {
-		// Arrange
-		assert := test.NewAssert(t)
+	err := uc.Delete(context.Background(), validUUID)
 
-		mock := &mockTodoService{
-			deleteFn: func(ctx context.Context, id string) error {
-				return domain.ErrTodoNotFound
-			},
-		}
-		uc := usecase.New(mock)
+	if err != nil {
+		t.Errorf("expected no error, got %v", err)
+	}
+	if capturedID != validUUID {
+		t.Errorf("expected ID %s, got %s", validUUID, capturedID)
+	}
+}
 
-		// Act
-		err := uc.Delete(context.Background(), test.NonExistentID)
+func TestTodo_Delete_ReturnsErrTodoNotFound(t *testing.T) {
+	mock := &test.MockTodoService{
+		DeleteFn: func(ctx context.Context, id string) error {
+			return domain.ErrTodoNotFound
+		},
+	}
+	uc := usecase.New(mock)
 
-		// Assert
-		assert.ErrorIs(err, domain.ErrTodoNotFound)
-	})
+	err := uc.Delete(context.Background(), nonExistentID)
+
+	if !errors.Is(err, domain.ErrTodoNotFound) {
+		t.Errorf("expected error %v, got %v", domain.ErrTodoNotFound, err)
+	}
 }
