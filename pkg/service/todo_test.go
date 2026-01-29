@@ -110,6 +110,53 @@ func TestService_Get_ReturnsEmptyList(t *testing.T) {
 	}
 }
 
+func TestService_Get_WithNullDescription(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to create mock: %v", err)
+	}
+	defer db.Close()
+	rows := sqlmock.NewRows([]string{"id", "title", "description", "status", "priority", "created_at", "updated_at"}).
+		AddRow(validUUID, validTitle, nil, domain.StatusPending, domain.PriorityMedium, fixedTime, fixedTime)
+	mock.ExpectQuery("SELECT").WithArgs(nil, nil).WillReturnRows(rows)
+	svc := service.New(db)
+
+	result, err := svc.Get(context.Background(), service.Filters{})
+
+	if err != nil {
+		t.Errorf("expected no error, got %v", err)
+	}
+	if len(result) != 1 {
+		t.Errorf("expected 1 todo, got %d", len(result))
+	}
+	if result[0].Description != "" {
+		t.Errorf("expected empty description, got %s", result[0].Description)
+	}
+}
+
+func TestService_Get_WithBothFilters(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to create mock: %v", err)
+	}
+	defer db.Close()
+	rows := sqlmock.NewRows([]string{"id", "title", "description", "status", "priority", "created_at", "updated_at"}).
+		AddRow(validUUID, validTitle, validDescription, domain.StatusCompleted, domain.PriorityHigh, fixedTime, fixedTime)
+	status := domain.StatusCompleted
+	priority := domain.PriorityHigh
+	mock.ExpectQuery("SELECT").WithArgs(string(status), string(priority)).WillReturnRows(rows)
+	svc := service.New(db)
+
+	result, err := svc.Get(context.Background(), service.Filters{Status: &status, Priority: &priority})
+
+	if err != nil {
+		t.Errorf("expected no error, got %v", err)
+	}
+	if len(result) != 1 {
+		t.Errorf("expected 1 todo, got %d", len(result))
+	}
+}
+
 func TestService_Get_ReturnsErrorOnQueryFailure(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -148,6 +195,27 @@ func TestService_GetByID_ReturnsTodoSuccessfully(t *testing.T) {
 	}
 	if result.Title != validTitle {
 		t.Errorf("expected title %s, got %s", validTitle, result.Title)
+	}
+}
+
+func TestService_GetByID_WithNullDescription(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to create mock: %v", err)
+	}
+	defer db.Close()
+	rows := sqlmock.NewRows([]string{"id", "title", "description", "status", "priority", "created_at", "updated_at"}).
+		AddRow(validUUID, validTitle, nil, domain.StatusPending, domain.PriorityMedium, fixedTime, fixedTime)
+	mock.ExpectQuery("SELECT").WithArgs(validUUID).WillReturnRows(rows)
+	svc := service.New(db)
+
+	result, err := svc.GetByID(context.Background(), validUUID)
+
+	if err != nil {
+		t.Errorf("expected no error, got %v", err)
+	}
+	if result.Description != "" {
+		t.Errorf("expected empty description, got %s", result.Description)
 	}
 }
 
@@ -290,6 +358,110 @@ func TestService_Update_ReturnsTodoSuccessfully(t *testing.T) {
 	}
 	if result.Title != updatedTitle {
 		t.Errorf("expected title %s, got %s", updatedTitle, result.Title)
+	}
+}
+
+func TestService_Update_WithDescription(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to create mock: %v", err)
+	}
+	defer db.Close()
+	updatedDesc := "Updated Description"
+	rows := sqlmock.NewRows([]string{"id", "title", "description", "status", "priority", "created_at", "updated_at"}).
+		AddRow(validUUID, validTitle, updatedDesc, domain.StatusPending, domain.PriorityMedium, fixedTime, fixedTime)
+
+	mock.ExpectQuery("UPDATE").
+		WithArgs(validUUID, nil, updatedDesc, nil, nil).
+		WillReturnRows(rows)
+	svc := service.New(db)
+	input := service.UpdateInput{Description: &updatedDesc}
+
+	result, err := svc.Update(context.Background(), validUUID, input)
+
+	if err != nil {
+		t.Errorf("expected no error, got %v", err)
+	}
+	if result.Description != updatedDesc {
+		t.Errorf("expected description %s, got %s", updatedDesc, result.Description)
+	}
+}
+
+func TestService_Update_WithStatus(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to create mock: %v", err)
+	}
+	defer db.Close()
+	status := domain.StatusCompleted
+	rows := sqlmock.NewRows([]string{"id", "title", "description", "status", "priority", "created_at", "updated_at"}).
+		AddRow(validUUID, validTitle, validDescription, status, domain.PriorityMedium, fixedTime, fixedTime)
+
+	mock.ExpectQuery("UPDATE").
+		WithArgs(validUUID, nil, nil, string(status), nil).
+		WillReturnRows(rows)
+	svc := service.New(db)
+	input := service.UpdateInput{Status: &status}
+
+	result, err := svc.Update(context.Background(), validUUID, input)
+
+	if err != nil {
+		t.Errorf("expected no error, got %v", err)
+	}
+	if result.Status != status {
+		t.Errorf("expected status %s, got %s", status, result.Status)
+	}
+}
+
+func TestService_Update_WithPriority(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to create mock: %v", err)
+	}
+	defer db.Close()
+	priority := domain.PriorityHigh
+	rows := sqlmock.NewRows([]string{"id", "title", "description", "status", "priority", "created_at", "updated_at"}).
+		AddRow(validUUID, validTitle, validDescription, domain.StatusPending, priority, fixedTime, fixedTime)
+
+	mock.ExpectQuery("UPDATE").
+		WithArgs(validUUID, nil, nil, nil, string(priority)).
+		WillReturnRows(rows)
+	svc := service.New(db)
+	input := service.UpdateInput{Priority: &priority}
+
+	result, err := svc.Update(context.Background(), validUUID, input)
+
+	if err != nil {
+		t.Errorf("expected no error, got %v", err)
+	}
+	if result.Priority != priority {
+		t.Errorf("expected priority %s, got %s", priority, result.Priority)
+	}
+}
+
+func TestService_Update_WithNullDescription(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to create mock: %v", err)
+	}
+	defer db.Close()
+	updatedTitle := "Updated Title"
+	rows := sqlmock.NewRows([]string{"id", "title", "description", "status", "priority", "created_at", "updated_at"}).
+		AddRow(validUUID, updatedTitle, nil, domain.StatusPending, domain.PriorityMedium, fixedTime, fixedTime)
+
+	mock.ExpectQuery("UPDATE").
+		WithArgs(validUUID, updatedTitle, nil, nil, nil).
+		WillReturnRows(rows)
+	svc := service.New(db)
+	input := service.UpdateInput{Title: &updatedTitle}
+
+	result, err := svc.Update(context.Background(), validUUID, input)
+
+	if err != nil {
+		t.Errorf("expected no error, got %v", err)
+	}
+	if result.Description != "" {
+		t.Errorf("expected empty description, got %s", result.Description)
 	}
 }
 

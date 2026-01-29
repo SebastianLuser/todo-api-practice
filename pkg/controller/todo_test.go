@@ -1,22 +1,26 @@
 package controller_test
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"testing"
 	"time"
 
 	"todo-api/pkg/controller"
 	"todo-api/pkg/domain"
+	"todo-api/pkg/service"
+	"todo-api/pkg/usecase"
 	"todo-api/test"
 	"todo-api/web"
 )
 
 const (
-	validUUID          = "123e4567-e89b-12d3-a456-426614174000"
-	invalidUUID        = "not-a-valid-uuid"
-	invalidStatus      = "invalid_status"
-	invalidPriority    = "invalid_priority"
-	maxTitleLength     = 100
+	validUUID            = "123e4567-e89b-12d3-a456-426614174000"
+	invalidUUID          = "not-a-valid-uuid"
+	invalidStatus        = "invalid_status"
+	invalidPriority      = "invalid_priority"
+	maxTitleLength       = 100
 	maxDescriptionLength = 500
 )
 
@@ -50,8 +54,8 @@ func buildValidTodo() domain.Todo {
 	}
 }
 
-func newTestController() *controller.Todo {
-	errHandler := web.NewErrorHandler(
+func newErrorHandler() web.ErrorHandler {
+	return web.NewErrorHandler(
 		web.NewErrorHandlerValueMapper(domain.ErrTodoNotFound, http.StatusNotFound),
 		web.NewErrorHandlerValueMapper(domain.ErrInvalidStatus, http.StatusBadRequest),
 		web.NewErrorHandlerValueMapper(domain.ErrInvalidPriority, http.StatusBadRequest),
@@ -59,7 +63,80 @@ func newTestController() *controller.Todo {
 		web.NewErrorHandlerValueMapper(domain.ErrInvalidID, http.StatusBadRequest),
 		web.NewErrorHandlerValueMapper(domain.ErrEmptyUpdateRequest, http.StatusBadRequest),
 	)
-	return controller.New(nil, errHandler)
+}
+
+func newTestController() *controller.Todo {
+	return controller.New(nil, newErrorHandler())
+}
+
+func newTestControllerWithMock(mockService *test.MockTodoService) *controller.Todo {
+	uc := usecase.New(mockService)
+	return controller.New(uc, newErrorHandler())
+}
+
+func TestTodoController_Get_Successfully(t *testing.T) {
+	expectedTodo := buildValidTodo()
+	mock := &test.MockTodoService{
+		GetFn: func(ctx context.Context, filters service.Filters) ([]domain.Todo, error) {
+			return []domain.Todo{expectedTodo}, nil
+		},
+	}
+	ctrl := newTestControllerWithMock(mock)
+	req := test.NewMockRequest()
+
+	response := ctrl.Get(req)
+
+	if response.Status != http.StatusOK {
+		t.Errorf("expected status %d, got %d", http.StatusOK, response.Status)
+	}
+}
+
+func TestTodoController_Get_WithValidStatusFilter(t *testing.T) {
+	mock := &test.MockTodoService{
+		GetFn: func(ctx context.Context, filters service.Filters) ([]domain.Todo, error) {
+			return []domain.Todo{}, nil
+		},
+	}
+	ctrl := newTestControllerWithMock(mock)
+	req := test.NewMockRequest().WithQuery("status", "pending")
+
+	response := ctrl.Get(req)
+
+	if response.Status != http.StatusOK {
+		t.Errorf("expected status %d, got %d", http.StatusOK, response.Status)
+	}
+}
+
+func TestTodoController_Get_WithValidPriorityFilter(t *testing.T) {
+	mock := &test.MockTodoService{
+		GetFn: func(ctx context.Context, filters service.Filters) ([]domain.Todo, error) {
+			return []domain.Todo{}, nil
+		},
+	}
+	ctrl := newTestControllerWithMock(mock)
+	req := test.NewMockRequest().WithQuery("priority", "high")
+
+	response := ctrl.Get(req)
+
+	if response.Status != http.StatusOK {
+		t.Errorf("expected status %d, got %d", http.StatusOK, response.Status)
+	}
+}
+
+func TestTodoController_Get_ServiceError(t *testing.T) {
+	mock := &test.MockTodoService{
+		GetFn: func(ctx context.Context, filters service.Filters) ([]domain.Todo, error) {
+			return nil, errors.New("database error")
+		},
+	}
+	ctrl := newTestControllerWithMock(mock)
+	req := test.NewMockRequest()
+
+	response := ctrl.Get(req)
+
+	if response.Status != http.StatusInternalServerError {
+		t.Errorf("expected status %d, got %d", http.StatusInternalServerError, response.Status)
+	}
 }
 
 func TestTodoController_Get_InvalidStatusFilter(t *testing.T) {
@@ -84,6 +161,39 @@ func TestTodoController_Get_InvalidPriorityFilter(t *testing.T) {
 	}
 }
 
+func TestTodoController_GetByID_Successfully(t *testing.T) {
+	expectedTodo := buildValidTodo()
+	mock := &test.MockTodoService{
+		GetByIDFn: func(ctx context.Context, id string) (domain.Todo, error) {
+			return expectedTodo, nil
+		},
+	}
+	ctrl := newTestControllerWithMock(mock)
+	req := test.NewMockRequest().WithParam("id", validUUID)
+
+	response := ctrl.GetByID(req)
+
+	if response.Status != http.StatusOK {
+		t.Errorf("expected status %d, got %d", http.StatusOK, response.Status)
+	}
+}
+
+func TestTodoController_GetByID_NotFound(t *testing.T) {
+	mock := &test.MockTodoService{
+		GetByIDFn: func(ctx context.Context, id string) (domain.Todo, error) {
+			return domain.Todo{}, domain.ErrTodoNotFound
+		},
+	}
+	ctrl := newTestControllerWithMock(mock)
+	req := test.NewMockRequest().WithParam("id", validUUID)
+
+	response := ctrl.GetByID(req)
+
+	if response.Status != http.StatusNotFound {
+		t.Errorf("expected status %d, got %d", http.StatusNotFound, response.Status)
+	}
+}
+
 func TestTodoController_GetByID_MissingParam(t *testing.T) {
 	ctrl := newTestController()
 	req := test.NewMockRequest()
@@ -103,6 +213,73 @@ func TestTodoController_GetByID_InvalidUUID(t *testing.T) {
 
 	if response.Status != http.StatusBadRequest {
 		t.Errorf("expected status %d, got %d", http.StatusBadRequest, response.Status)
+	}
+}
+
+func TestTodoController_Create_Successfully(t *testing.T) {
+	expectedTodo := buildValidTodo()
+	mock := &test.MockTodoService{
+		CreateFn: func(ctx context.Context, input service.CreateInput) (domain.Todo, error) {
+			return expectedTodo, nil
+		},
+	}
+	ctrl := newTestControllerWithMock(mock)
+	req := test.NewMockRequest().WithBody(`{"title": "Test Todo"}`)
+
+	response := ctrl.Create(req)
+
+	if response.Status != http.StatusCreated {
+		t.Errorf("expected status %d, got %d", http.StatusCreated, response.Status)
+	}
+}
+
+func TestTodoController_Create_WithStatusAndPriority(t *testing.T) {
+	expectedTodo := buildValidTodo()
+	mock := &test.MockTodoService{
+		CreateFn: func(ctx context.Context, input service.CreateInput) (domain.Todo, error) {
+			return expectedTodo, nil
+		},
+	}
+	ctrl := newTestControllerWithMock(mock)
+	req := test.NewMockRequest().WithBody(`{"title": "Test", "status": "in_progress", "priority": "high"}`)
+
+	response := ctrl.Create(req)
+
+	if response.Status != http.StatusCreated {
+		t.Errorf("expected status %d, got %d", http.StatusCreated, response.Status)
+	}
+}
+
+func TestTodoController_Create_WithDescription(t *testing.T) {
+	expectedTodo := buildValidTodo()
+	mock := &test.MockTodoService{
+		CreateFn: func(ctx context.Context, input service.CreateInput) (domain.Todo, error) {
+			return expectedTodo, nil
+		},
+	}
+	ctrl := newTestControllerWithMock(mock)
+	req := test.NewMockRequest().WithBody(`{"title": "Test", "description": "A description"}`)
+
+	response := ctrl.Create(req)
+
+	if response.Status != http.StatusCreated {
+		t.Errorf("expected status %d, got %d", http.StatusCreated, response.Status)
+	}
+}
+
+func TestTodoController_Create_ServiceError(t *testing.T) {
+	mock := &test.MockTodoService{
+		CreateFn: func(ctx context.Context, input service.CreateInput) (domain.Todo, error) {
+			return domain.Todo{}, errors.New("database error")
+		},
+	}
+	ctrl := newTestControllerWithMock(mock)
+	req := test.NewMockRequest().WithBody(`{"title": "Test Todo"}`)
+
+	response := ctrl.Create(req)
+
+	if response.Status != http.StatusInternalServerError {
+		t.Errorf("expected status %d, got %d", http.StatusInternalServerError, response.Status)
 	}
 }
 
@@ -172,6 +349,120 @@ func TestTodoController_Create_DescriptionTooLong(t *testing.T) {
 	}
 }
 
+func TestTodoController_Update_Successfully(t *testing.T) {
+	expectedTodo := buildValidTodo()
+	mock := &test.MockTodoService{
+		UpdateFn: func(ctx context.Context, id string, input service.UpdateInput) (domain.Todo, error) {
+			return expectedTodo, nil
+		},
+	}
+	ctrl := newTestControllerWithMock(mock)
+	req := test.NewMockRequest().
+		WithParam("id", validUUID).
+		WithBody(`{"title": "Updated Title"}`)
+
+	response := ctrl.Update(req)
+
+	if response.Status != http.StatusOK {
+		t.Errorf("expected status %d, got %d", http.StatusOK, response.Status)
+	}
+}
+
+func TestTodoController_Update_WithStatusAndPriority(t *testing.T) {
+	expectedTodo := buildValidTodo()
+	mock := &test.MockTodoService{
+		UpdateFn: func(ctx context.Context, id string, input service.UpdateInput) (domain.Todo, error) {
+			return expectedTodo, nil
+		},
+	}
+	ctrl := newTestControllerWithMock(mock)
+	req := test.NewMockRequest().
+		WithParam("id", validUUID).
+		WithBody(`{"status": "completed", "priority": "low"}`)
+
+	response := ctrl.Update(req)
+
+	if response.Status != http.StatusOK {
+		t.Errorf("expected status %d, got %d", http.StatusOK, response.Status)
+	}
+}
+
+func TestTodoController_Update_WithDescription(t *testing.T) {
+	expectedTodo := buildValidTodo()
+	mock := &test.MockTodoService{
+		UpdateFn: func(ctx context.Context, id string, input service.UpdateInput) (domain.Todo, error) {
+			return expectedTodo, nil
+		},
+	}
+	ctrl := newTestControllerWithMock(mock)
+	req := test.NewMockRequest().
+		WithParam("id", validUUID).
+		WithBody(`{"description": "Updated description"}`)
+
+	response := ctrl.Update(req)
+
+	if response.Status != http.StatusOK {
+		t.Errorf("expected status %d, got %d", http.StatusOK, response.Status)
+	}
+}
+
+func TestTodoController_Update_NotFound(t *testing.T) {
+	mock := &test.MockTodoService{
+		UpdateFn: func(ctx context.Context, id string, input service.UpdateInput) (domain.Todo, error) {
+			return domain.Todo{}, domain.ErrTodoNotFound
+		},
+	}
+	ctrl := newTestControllerWithMock(mock)
+	req := test.NewMockRequest().
+		WithParam("id", validUUID).
+		WithBody(`{"title": "Updated"}`)
+
+	response := ctrl.Update(req)
+
+	if response.Status != http.StatusNotFound {
+		t.Errorf("expected status %d, got %d", http.StatusNotFound, response.Status)
+	}
+}
+
+func TestTodoController_Update_DescriptionTooLong(t *testing.T) {
+	ctrl := newTestController()
+	req := test.NewMockRequest().
+		WithParam("id", validUUID).
+		WithBody(`{"description": "` + descriptionTooLong() + `"}`)
+
+	response := ctrl.Update(req)
+
+	if response.Status != http.StatusBadRequest {
+		t.Errorf("expected status %d, got %d", http.StatusBadRequest, response.Status)
+	}
+}
+
+func TestTodoController_Update_InvalidPriority(t *testing.T) {
+	ctrl := newTestController()
+	req := test.NewMockRequest().
+		WithParam("id", validUUID).
+		WithBody(`{"priority": "` + invalidPriority + `"}`)
+
+	response := ctrl.Update(req)
+
+	if response.Status != http.StatusBadRequest {
+		t.Errorf("expected status %d, got %d", http.StatusBadRequest, response.Status)
+	}
+}
+
+func TestTodoController_Update_InvalidJSON(t *testing.T) {
+	ctrl := newTestController()
+	req := test.NewMockRequest().
+		WithParam("id", validUUID).
+		WithBody("invalid json")
+
+	response := ctrl.Update(req)
+
+	if response.Status != http.StatusBadRequest {
+		t.Errorf("expected status %d, got %d", http.StatusBadRequest, response.Status)
+	}
+}
+
 func TestTodoController_Update_MissingParam(t *testing.T) {
 	ctrl := newTestController()
 	req := test.NewMockRequest()
@@ -220,6 +511,19 @@ func TestTodoController_Update_EmptyTitle(t *testing.T) {
 	}
 }
 
+func TestTodoController_Update_TitleTooLong(t *testing.T) {
+	ctrl := newTestController()
+	req := test.NewMockRequest().
+		WithParam("id", validUUID).
+		WithBody(`{"title": "` + titleTooLong() + `"}`)
+
+	response := ctrl.Update(req)
+
+	if response.Status != http.StatusBadRequest {
+		t.Errorf("expected status %d, got %d", http.StatusBadRequest, response.Status)
+	}
+}
+
 func TestTodoController_Update_InvalidStatus(t *testing.T) {
 	ctrl := newTestController()
 	req := test.NewMockRequest().
@@ -230,6 +534,38 @@ func TestTodoController_Update_InvalidStatus(t *testing.T) {
 
 	if response.Status != http.StatusBadRequest {
 		t.Errorf("expected status %d, got %d", http.StatusBadRequest, response.Status)
+	}
+}
+
+func TestTodoController_Delete_Successfully(t *testing.T) {
+	mock := &test.MockTodoService{
+		DeleteFn: func(ctx context.Context, id string) error {
+			return nil
+		},
+	}
+	ctrl := newTestControllerWithMock(mock)
+	req := test.NewMockRequest().WithParam("id", validUUID)
+
+	response := ctrl.Delete(req)
+
+	if response.Status != http.StatusNoContent {
+		t.Errorf("expected status %d, got %d", http.StatusNoContent, response.Status)
+	}
+}
+
+func TestTodoController_Delete_NotFound(t *testing.T) {
+	mock := &test.MockTodoService{
+		DeleteFn: func(ctx context.Context, id string) error {
+			return domain.ErrTodoNotFound
+		},
+	}
+	ctrl := newTestControllerWithMock(mock)
+	req := test.NewMockRequest().WithParam("id", validUUID)
+
+	response := ctrl.Delete(req)
+
+	if response.Status != http.StatusNotFound {
+		t.Errorf("expected status %d, got %d", http.StatusNotFound, response.Status)
 	}
 }
 
